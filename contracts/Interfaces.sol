@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.7.4;
+pragma solidity >=0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/token/ERC20/IERC20.sol";
 
 interface Comptroller {
     function enterMarkets(address[] calldata cTokens) external returns (uint256[] memory);

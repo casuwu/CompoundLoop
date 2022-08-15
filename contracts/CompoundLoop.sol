@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.7.4;
+pragma solidity >=0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/access/Ownable.sol";
+import "@openzeppelin/token/ERC20/ERC20.sol";
 import "./Exponential.sol";
 import "./Interfaces.sol";
+import "../lib/solmate/src/utils/FixedPointMathLib.sol";
 
 contract CompoundLoop is Ownable, Exponential {
-    using SafeMath for uint256;
-    using SafeERC20 for IERC20;
+    using FixedPointMathLib for uint256;
 
     // --- fields ---
     address public constant UNITROLLER = address(0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B);
@@ -118,7 +118,7 @@ contract CompoundLoop is Ownable, Exponential {
             require(shortfall == 0, "shortfall");
 
             uint256 amountToBorrow = eighteenToUSDC(liquidity); // 6 decimals
-            amountToBorrow = amountToBorrow.mul(borrowRatioNum).div(borrowRatioDenom);
+            amountToBorrow = amountToBorrow.mulDivUp(borrowRatioNum, borrowRatioDenom);
 
             borrow(amountToBorrow);
 
@@ -150,13 +150,13 @@ contract CompoundLoop is Ownable, Exponential {
             // getAmountToRedeem from liquidity and collateralFactor
             (, Exp memory amountToRedeemExp) = getExp(liquidity, collateralFactor);
             uint256 amountToRedeem = eighteenToUSDC(amountToRedeemExp.mantissa);
-            amountToRedeem = amountToRedeem.mul(redeemRatioNum).div(redeemRatioDenom); // 6 decimals
+            amountToRedeem = amountToRedeem.mulDivUp(redeemRatioNum, redeemRatioDenom); // 6 decimals
 
             redeemUnderlying(amountToRedeem);
 
             uint256 usdcBalance = underlyingBalance();
             if (usdcBalance > _borrowBalance) {
-                require(CERC20(CUSDC).repayBorrow(uint256(-1)) == 0, "repayBorrow -1 failed");
+                require(CERC20(CUSDC).repayBorrow(type(uint256).max) == 0, "repayBorrow -1 failed");
             } else {
                 require(CERC20(CUSDC).repayBorrow(usdcBalance) == 0, "repayBorrow failed");
             }
@@ -174,7 +174,7 @@ contract CompoundLoop is Ownable, Exponential {
     // --- internal ---
 
     function eighteenToUSDC(uint256 amount18Decimals) internal pure returns (uint256) {
-        return amount18Decimals.div(10**12);
+        return amount18Decimals / (10**12);
     }
 
     // --- withdraw assets by owner ---
@@ -182,21 +182,21 @@ contract CompoundLoop is Ownable, Exponential {
     function claimAndTransferAllCompToOwner() public onlyManagerOrOwner {
         uint256 balance = claimComp();
         if (balance > 0) {
-            IERC20(COMP).safeTransfer(owner(), balance);
+            IERC20(COMP).transfer(owner(), balance);
         }
     }
 
     function safeTransferUSDCToOwner() public onlyOwner {
         uint256 usdcBalance = underlyingBalance();
         if (usdcBalance > 0) {
-            IERC20(USDC).safeTransfer(owner(), usdcBalance);
+            IERC20(USDC).transfer(owner(), usdcBalance);
         }
     }
 
     function safeTransferAssetToOwner(address src) public onlyOwner {
         uint256 balance = IERC20(src).balanceOf(address(this));
         if (balance > 0) {
-            IERC20(src).safeTransfer(owner(), balance);
+            IERC20(src).transfer(owner(), balance);
         }
     }
 
@@ -213,8 +213,8 @@ contract CompoundLoop is Ownable, Exponential {
     }
 
     function setApprove() public onlyManagerOrOwner {
-        if (IERC20(USDC).allowance(address(this), CUSDC) != uint256(-1)) {
-            IERC20(USDC).approve(CUSDC, uint256(-1));
+        if (IERC20(USDC).allowance(address(this), CUSDC) != type(uint256).max) {
+            IERC20(USDC).approve(CUSDC, type(uint256).max);
         }
     }
 
@@ -252,8 +252,8 @@ contract CompoundLoop is Ownable, Exponential {
     function repayBorrowAll() public onlyManagerOrOwner {
         uint256 usdcBalance = underlyingBalance();
         if (usdcBalance > borrowBalanceCurrent()) {
-            require(CERC20(CUSDC).repayBorrow(uint256(-1)) == 0, "repayBorrow -1 failed");
-            emit LogRepay(CUSDC, address(this), uint256(-1));
+            require(CERC20(CUSDC).repayBorrow(type(uint256).max) == 0, "repayBorrow -1 failed");
+            emit LogRepay(CUSDC, address(this), type(uint256).max);
         } else {
             require(CERC20(CUSDC).repayBorrow(usdcBalance) == 0, "repayBorrow failed");
             emit LogRepay(CUSDC, address(this), usdcBalance);
@@ -275,7 +275,7 @@ contract CompoundLoop is Ownable, Exponential {
         address to_,
         uint256 amount_
     ) public onlyOwner {
-        IERC20(asset_).safeTransfer(to_, amount_);
+        IERC20(asset_).transfer(to_, amount_);
     }
 
     function emergencyTransferAll(address[] memory tokens_, address to_) public onlyOwner {
@@ -284,7 +284,7 @@ contract CompoundLoop is Ownable, Exponential {
             IERC20 erc = IERC20(tokens_[i]);
             uint256 balance = erc.balanceOf(address(this));
             if (balance > 0) {
-                erc.safeTransfer(to_, balance);
+                erc.transfer(to_, balance);
             }
         }
     }
