@@ -8,7 +8,7 @@ import "./Exponential.sol";
 import "./Interfaces.sol";
 import "../lib/solmate/src/utils/FixedPointMathLib.sol";
 
-contract CompoundLoop is Ownable, Exponential {
+contract CompoundLoop is Exponential {
     using FixedPointMathLib for uint256;
 
     // --- fields ---
@@ -26,11 +26,7 @@ contract CompoundLoop is Ownable, Exponential {
     event LogRedeemUnderlying(address token, address owner, uint256 tokenAmount);
     event LogRepay(address token, address owner, uint256 tokenAmount);
 
-    // --- modifiers ---
-    modifier onlyManagerOrOwner() {
-        require(msg.sender == manager || msg.sender == owner(), "Caller is not manager or owner");
-        _;
-    }
+
 
     constructor(address _manager) {
         setManager(_manager);
@@ -43,7 +39,7 @@ contract CompoundLoop is Ownable, Exponential {
     }
 
     function underlyingBalance() public view returns (uint256) {
-        return IERC20(USDC).balanceOf(address(this));
+        return IERC20(USDC).balanceOf(msg.sender);
     }
 
     function getAccountLiquidity()
@@ -100,43 +96,43 @@ contract CompoundLoop is Ownable, Exponential {
         uint256 minAmountIn,
         uint256 borrowRatioNum,
         uint256 borrowRatioDenom
-    ) external onlyManagerOrOwner {
+    ) external returns(uint256[] memory) {
         (bool isListed, ) = Comptroller(UNITROLLER).markets(CUSDC);
         require(isListed, "cToken not listed");
+        
+        address[] memory arrayForEnterMarkets = new address[](1);
+        arrayForEnterMarkets[0] = CUSDC;
+        return Comptroller(UNITROLLER).enterMarkets(arrayForEnterMarkets);
 
-        setApprove();
-        enterMarkets();
+        // uint256 usdcBalance = underlyingBalance();
+        // require(usdcBalance > 0, "not enough USDC balance");
 
-        uint256 usdcBalance = underlyingBalance();
-        require(usdcBalance > 0, "not enough USDC balance");
+        // while (usdcBalance >= minAmountIn) {
+        //     mintCToken(usdcBalance);
 
-        while (usdcBalance >= minAmountIn) {
-            mintCToken(usdcBalance);
+        //     (uint256 err, uint256 liquidity, uint256 shortfall) = getAccountLiquidity(); // 18 decimals
+        //     require(err == 0, "getAccountLiquidity error");
+        //     require(shortfall == 0, "shortfall");
 
-            (uint256 err, uint256 liquidity, uint256 shortfall) = getAccountLiquidity(); // 18 decimals
-            require(err == 0, "getAccountLiquidity error");
-            require(shortfall == 0, "shortfall");
+        //     return amountToBorrow = eighteenToUSDC(liquidity); // 6 decimals
+        //     amountToBorrow = amountToBorrow.mulWadDown(borrowRatioNum);
 
-            uint256 amountToBorrow = eighteenToUSDC(liquidity); // 6 decimals
-            amountToBorrow = amountToBorrow.mulDivUp(borrowRatioNum, borrowRatioDenom);
+        //     borrow(amountToBorrow);
 
-            borrow(amountToBorrow);
+        //     usdcBalance = underlyingBalance();
+        // }
 
-            usdcBalance = underlyingBalance();
-        }
-
-        mintCToken(usdcBalance);
+        // mintCToken(usdcBalance);
     }
-
     // maxIterations control the loop
     function exitPosition(
         uint256 maxIterations,
         uint256 redeemRatioNum,
         uint256 redeemRatioDenom
-    ) external onlyManagerOrOwner returns (uint256) {
+    ) external   returns (uint256) {
         require(cTokenBalance() > 0, "cUSDC balance = 0");
 
-        setApprove();
+        // setApprove();
 
         (, uint256 collateralFactor) = Comptroller(UNITROLLER).markets(CUSDC);
 
@@ -179,77 +175,66 @@ contract CompoundLoop is Ownable, Exponential {
 
     // --- withdraw assets by owner ---
 
-    function claimAndTransferAllCompToOwner() public onlyManagerOrOwner {
+    function claimAndTransferAllCompToOwner() public   {
         uint256 balance = claimComp();
         if (balance > 0) {
-            IERC20(COMP).transfer(owner(), balance);
+            IERC20(COMP).transfer(msg.sender, balance);
         }
     }
 
-    function safeTransferUSDCToOwner() public onlyOwner {
+    function safeTransferUSDCToOwner() public {
         uint256 usdcBalance = underlyingBalance();
         if (usdcBalance > 0) {
-            IERC20(USDC).transfer(owner(), usdcBalance);
+            IERC20(USDC).transfer(msg.sender, usdcBalance);
         }
     }
 
-    function safeTransferAssetToOwner(address src) public onlyOwner {
+    function safeTransferAssetToOwner(address src) public {
         uint256 balance = IERC20(src).balanceOf(address(this));
         if (balance > 0) {
-            IERC20(src).transfer(owner(), balance);
+            IERC20(src).transfer(msg.sender, balance);
         }
     }
 
-    function transferFrom(address src_, uint256 amount_) public onlyOwner {
+    function transferFrom(address src_, uint256 amount_) public {
         IERC20(USDC).transferFrom(src_, address(this), amount_);
     }
 
     // --- administration ---
 
-    function setManager(address _newManager) public onlyOwner {
+    function setManager(address _newManager) public
+     {
         require(_newManager != address(0), "_newManager is null");
         emit ManagerUpdated(manager, _newManager);
         manager = _newManager;
     }
 
-    function setApprove() public onlyManagerOrOwner {
-        if (IERC20(USDC).allowance(address(this), CUSDC) != type(uint256).max) {
-            IERC20(USDC).approve(CUSDC, type(uint256).max);
-        }
-    }
-
-    function enterMarkets() public onlyManagerOrOwner {
-        address[] memory arrayForEnterMarkets = new address[](1);
-        arrayForEnterMarkets[0] = CUSDC;
-        Comptroller(UNITROLLER).enterMarkets(arrayForEnterMarkets);
-    }
-
-    function mintCToken(uint256 amount) public onlyManagerOrOwner {
-        require(CERC20(CUSDC).mint(amount) == 0, "mint has failed");
+    function mintCToken(uint256 amount) public   {
+        // require(CERC20(CUSDC).mint(amount) == 0, "mint has failed");
         emit LogMint(CUSDC, address(this), amount);
     }
 
-    function borrow(uint256 amount) public onlyManagerOrOwner {
+    function borrow(uint256 amount) public   {
         require(CERC20(CUSDC).borrow(amount) == 0, "borrow has failed");
         emit LogBorrow(CUSDC, address(this), amount);
     }
 
-    function redeemCToken(uint256 amount) public onlyManagerOrOwner {
+    function redeemCToken(uint256 amount) public   {
         require(CERC20(CUSDC).redeem(amount) == 0, "redeem failed");
         emit LogRedeem(CUSDC, address(this), amount);
     }
 
-    function redeemUnderlying(uint256 amount) public onlyManagerOrOwner {
+    function redeemUnderlying(uint256 amount) public   {
         require(CERC20(CUSDC).redeemUnderlying(amount) == 0, "redeemUnderlying failed");
         emit LogRedeemUnderlying(CUSDC, address(this), amount);
     }
 
-    function repayBorrow(uint256 amount) public onlyManagerOrOwner {
+    function repayBorrow(uint256 amount) public   {
         require(CERC20(CUSDC).repayBorrow(amount) == 0, "repayBorrow failed");
         emit LogRepay(CUSDC, address(this), amount);
     }
 
-    function repayBorrowAll() public onlyManagerOrOwner {
+    function repayBorrowAll() public   {
         uint256 usdcBalance = underlyingBalance();
         if (usdcBalance > borrowBalanceCurrent()) {
             require(CERC20(CUSDC).repayBorrow(type(uint256).max) == 0, "repayBorrow -1 failed");
@@ -258,58 +243,5 @@ contract CompoundLoop is Ownable, Exponential {
             require(CERC20(CUSDC).repayBorrow(usdcBalance) == 0, "repayBorrow failed");
             emit LogRepay(CUSDC, address(this), usdcBalance);
         }
-    }
-
-    // --- emergency ---
-
-    function emergencyTransferAsset(
-        address asset_,
-        address to_,
-        uint256 amount_
-    ) public onlyOwner {
-        IERC20(asset_).transfer(to_, amount_);
-    }
-
-    function emergencySafeTransferAsset(
-        address asset_,
-        address to_,
-        uint256 amount_
-    ) public onlyOwner {
-        IERC20(asset_).transfer(to_, amount_);
-    }
-
-    function emergencyTransferAll(address[] memory tokens_, address to_) public onlyOwner {
-        uint256 ercLen = tokens_.length;
-        for (uint256 i = 0; i < ercLen; i++) {
-            IERC20 erc = IERC20(tokens_[i]);
-            uint256 balance = erc.balanceOf(address(this));
-            if (balance > 0) {
-                erc.transfer(to_, balance);
-            }
-        }
-    }
-
-    function emergencySubmitTransaction(
-        address destination,
-        bytes memory data,
-        uint256 gasLimit
-    ) public onlyOwner returns (bool) {
-        uint256 dataLength = data.length;
-        bool result;
-        // solhint-disable-next-line
-        assembly {
-            let x := mload(0x40) // memory for output
-            let d := add(data, 32) // first 32 bytes are the padded length of data, so exclude that
-            result := call(
-                gasLimit,
-                destination,
-                0, // value is ignored
-                d,
-                dataLength,
-                x,
-                0 // output is ignored
-            )
-        }
-        return result;
     }
 }
