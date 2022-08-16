@@ -45,7 +45,9 @@ contract Loop is Test {
     uint256 currentLiquidationThreshold;
     uint256 ltv;
     uint256 healthFactor;
-    
+    uint256 err;
+    uint256 accountLiquidity;
+    uint256 accountShortFall;
     // AaveLoop looper;
     uint256 ALICE_PK = 0xCAFE;
     address ALICE = vm.addr(ALICE_PK);
@@ -75,10 +77,12 @@ contract Loop is Test {
         vm.startPrank(RichDudeAddy);
         IUSDC.approve(address(loop), type(uint256).max);
         IUSDC.transfer(address(loop), IUSDC.balanceOf(RichDudeAddy));
-        uint256 balance = loop.supplyErc20ToCompound(address(loop), CUSDC, 1);
+        uint256 balance = loop.supplyErc20ToCompound(address(loop), CUSDC, 100);
         console.log("usdc balance of contract",balance);
         uint256 credit = ICUSDC.balanceOf(address(loop));
         console.log(credit);
+        (err, accountLiquidity, accountShortFall) = loop.getAccountLiquidity(address(loop));
+        console.log(accountLiquidity);
         // uint256 exchangeRate = CErc20(CUSDC).exchangeRateCurrent();
         // console.log("exchange", exchangeRate)
         // loop.enterPosition(88120744944210, 1e18, 1e18);

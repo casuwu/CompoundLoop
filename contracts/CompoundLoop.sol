@@ -55,11 +55,11 @@ contract CompoundLoop is Ownable, Exponential {
         return IERC20(CUSDC).balanceOf(msg.sender);
     }
 
-    function underlyingBalance() public view returns (uint256) {
-        return IERC20(USDC).balanceOf(msg.sender);
+    function underlyingBalance(address user) public view returns (uint256) {
+        return IERC20(USDC).balanceOf(user);
     }
 
-    function getAccountLiquidity()
+    function getAccountLiquidity(address user)
         public
         view
         returns (
@@ -68,7 +68,7 @@ contract CompoundLoop is Ownable, Exponential {
             uint256 shortfall
         )
     {
-        return Comptroller(UNITROLLER).getAccountLiquidity(msg.sender);
+        return Comptroller(UNITROLLER).getAccountLiquidity(user);
     }
 
     // --- unrestricted actions ---
@@ -99,17 +99,67 @@ contract CompoundLoop is Ownable, Exponential {
             uint256 accountShortfall
         )
     {
-        require(CERC20(CUSDC).accrueInterest() == 0, "accrueInterest failed");
+        // require(CERC20(CUSDC).accrueInterest() == 0, "accrueInterest failed");
         return Comptroller(UNITROLLER).getAccountLiquidity(msg.sender);
     }
 
     // --- main ---
+
+    // --- main ---
+
+    // 3 typical cases:
+    // minAmountIn = account balance (this goes for one iteration: mint, borrow, mint)
+    // minAmountIn < account balance (this goes for multiple iterations: mint, borrow, mint, borrow, ..., mint until the last mint was for a sum smaller than minAmountIn)
+    // minAmountIn = uint(-1) (this goes for zero iterations: mint)
+    // function enterPosition(
+    //     uint256 minAmountIn,
+    //     uint256 borrowRatioNum,
+    //     uint256 borrowRatioDenom
+    // ) external {
+    //     (bool isListed, ) = Comptroller(UNITROLLER).markets(CUSDC);
+    //     require(isListed, "cToken not listed");
+        
+    //     setApprove();
+    //     address[] memory arrayForEnterMarkets = new address[](1);
+    //     arrayForEnterMarkets[0] = CUSDC;
+    //     Comptroller(UNITROLLER).enterMarkets(arrayForEnterMarkets);
+
+    //     uint256 usdcBalance = underlyingBalance();
+    //     require(usdcBalance > 0, "not enough USDC balance");
+
+    //     while (usdcBalance >= minAmountIn) {
+    //         mintCToken(usdcBalance);
+
+    //         (uint256 err, uint256 liquidity, uint256 shortfall) = getAccountLiquidity(); // 18 decimals
+    //         require(err == 0, "getAccountLiquidity error");
+    //         require(shortfall == 0, "shortfall");
+
+    //         uint256 amountToBorrow = eighteenToUSDC(liquidity); // 6 decimals
+    //         amountToBorrow = amountToBorrow.mulWadDown(borrowRatioNum, borrowRatioDenom);
+
+    //         borrow(amountToBorrow);
+
+    //         usdcBalance = underlyingBalance();
+    //     }
+
+    //     mintCToken(usdcBalance);
+    // }
 
     function supplyErc20ToCompound(
         address _erc20Contract,
         address _cErc20Contract,
         uint256 _numTokensToSupply
     ) public returns (uint) {
+        (bool isListed, ) = Comptroller(UNITROLLER).markets(CUSDC);
+        require(isListed, "cToken not listed");
+        
+        setApprove();
+        address[] memory arrayForEnterMarkets = new address[](1);
+        arrayForEnterMarkets[0] = CUSDC;
+        Comptroller(UNITROLLER).enterMarkets(arrayForEnterMarkets);
+
+        uint256 usdcBalance = underlyingBalance(_erc20Contract);
+        require(usdcBalance > 0, "not enough USDC balance");        
         // Create a reference to the underlying asset contract, like DAI.
         Erc20 underlying = Erc20(USDC);
 
@@ -136,7 +186,7 @@ contract CompoundLoop is Ownable, Exponential {
 
     function eighteenToUSDC(uint256 amount18Decimals) internal pure returns (uint256) {
         return amount18Decimals / (10**12);
-    }
+    } 
 
     function setApprove() public {
         if (IERC20(USDC).allowance(msg.sender, CUSDC) != type(uint256).max) {
@@ -150,13 +200,6 @@ contract CompoundLoop is Ownable, Exponential {
         uint256 balance = claimComp();
         if (balance > 0) {
             IERC20(COMP).transfer(owner(), balance);
-        }
-    }
-
-    function safeTransferUSDCToOwner() public {
-        uint256 usdcBalance = underlyingBalance();
-        if (usdcBalance > 0) {
-            IERC20(USDC).transfer(owner(), usdcBalance);
         }
     }
 
@@ -184,14 +227,14 @@ contract CompoundLoop is Ownable, Exponential {
         emit LogBorrow(CUSDC, address(this), amount);
     }
 
-    function repayBorrowAll() public {
-        uint256 usdcBalance = underlyingBalance();
-        if (usdcBalance > borrowBalanceCurrent()) {
-            require(CERC20(CUSDC).repayBorrow(type(uint256).max) == 0, "repayBorrow -1 failed");
-            emit LogRepay(CUSDC, address(this), type(uint256).max);
-        } else {
-            require(CERC20(CUSDC).repayBorrow(usdcBalance) == 0, "repayBorrow failed");
-            emit LogRepay(CUSDC, address(this), usdcBalance);
-        }
-    }
+    // function repayBorrowAll() public {
+    //     uint256 usdcBalance = underlyingBalance();
+    //     if (usdcBalance > borrowBalanceCurrent()) {
+    //         require(CERC20(CUSDC).repayBorrow(type(uint256).max) == 0, "repayBorrow -1 failed");
+    //         emit LogRepay(CUSDC, address(this), type(uint256).max);
+    //     } else {
+    //         require(CERC20(CUSDC).repayBorrow(usdcBalance) == 0, "repayBorrow failed");
+    //         emit LogRepay(CUSDC, address(this), usdcBalance);
+    //     }
+    // }
 }
